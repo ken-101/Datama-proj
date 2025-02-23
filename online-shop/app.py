@@ -1,80 +1,88 @@
-from flask import Flask, render_template, request, redirect, url_for, session
+import os
+from flask import Flask, request, jsonify, render_template, redirect, url_for, session
 from supabase import create_client, Client
+from werkzeug.security import generate_password_hash, check_password_hash
+import config
 
 app = Flask(__name__)
-app.secret_key = "replace_with_your_secret_key"  # Needed for session usage
+app.secret_key = "supersecretkey"  # Change this in production
 
-# Supabase credentials
-SUPABASE_URL = "https://cipzhvxtnmftxqamsicd.supabase.co"
-SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNpcHpodnh0bm1mdHhxYW1zaWNkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Mzk2MTg4NTYsImV4cCI6MjA1NTE5NDg1Nn0.zZmXXbIqigl8XmcsxBf2Rg_SXpLOyZxPKMI-ksx-Zgg"
-
-supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
-
+# Initialize Supabase Client
+supabase: Client = create_client(config.SUPABASE_URL, config.SUPABASE_KEY)
 
 @app.route('/')
 def home():
-    # Simple home page, you can redirect to /login or show a landing page
-    return "Welcome to the Flask + Supabase Demo"
+    return render_template("login.html")
 
+# SIGNUP ROUTE
+@app.route('/signup', methods=['GET', 'POST'])
+def signup():
+    if request.method == 'POST':
+        user_email = request.form.get('email')
+        user_password = request.form.get('password')
+        user_role = request.form.get('role')
 
+        # Hash password before storing
+        hashed_password = generate_password_hash(user_password)
+
+        # Check if email already exists
+        existing_user = supabase.table("users").select("*").eq("user_email", user_email).execute()
+        if existing_user.data:
+            return jsonify({"error": "Email already registered!"}), 400
+
+        # Insert user into Supabase
+        supabase.table("users").insert({
+            "user_email": user_email,
+            "user_password": hashed_password,
+            "user_role": user_role
+        }).execute()
+
+        return redirect(url_for("login"))
+
+    return render_template('signup.html')
+
+# LOGIN ROUTE
 @app.route('/login', methods=['GET', 'POST'])
 def login():
     if request.method == 'POST':
-        email = request.form.get('email')
-        password = request.form.get('password')
+        user_email = request.form.get('email')
+        user_password = request.form.get('password')
 
-        # Query the 'users' table to find matching user
-        response = supabase.table("users").select("*").eq("user_email", email).execute()
-        user_data = response.data
+        # Fetch user from Supabase
+        user = supabase.table("users").select("*").eq("user_email", user_email).execute()
+        if not user.data:
+            return jsonify({"error": "User not found!"}), 400
 
-        if user_data:
-            # user_data is a list of records, so we take the first one
-            user = user_data[0]
-            # Check password
-            if user["user_password"] == password:
-                # Save user info in session
-                session["user_id"] = user["user_id"]
-                session["user_role"] = user["user_role"]
+        # Verify password
+        user_data = user.data[0]
+        if not check_password_hash(user_data["user_password"], user_password):
+            return jsonify({"error": "Invalid password!"}), 400
 
-                # Redirect based on user role
-                if user["user_role"] == "buyer":
-                    return redirect(url_for('buyer_dashboard'))
-                elif user["user_role"] == "seller":
-                    return redirect(url_for('seller_dashboard'))
-                else:
-                    return "Unknown role."
-            else:
-                return "Wrong password."
+        # Store session & redirect
+        session["user_email"] = user_email
+        session["user_role"] = user_data["user_role"]
+
+        if user_data["user_role"] == "buyer":
+            return redirect(url_for("buyer_dashboard"))
         else:
-            return "User not found."
-    else:
-        # GET request -> show the login form
-        return render_template('login.html')
+            return redirect(url_for("seller_dashboard"))
 
+    return render_template("login.html")
 
-@app.route('/buyer-dashboard')
+# BUYER DASHBOARD
+@app.route('/buyer')
 def buyer_dashboard():
-    # Check if user is logged in and is a buyer
-    if "user_role" in session and session["user_role"] == "buyer":
-        return render_template('buyer.html')
-    else:
-        return "Unauthorized access. Please log in as a buyer."
+    if session.get("user_role") != "buyer":
+        return redirect(url_for("login"))
+    return render_template("buyer.html")
 
-
-@app.route('/seller-dashboard')
+# SELLER DASHBOARD
+@app.route('/seller')
 def seller_dashboard():
-    # Check if user is logged in and is a seller
-    if "user_role" in session and session["user_role"] == "seller":
-        return render_template('seller.html')
-    else:
-        return "Unauthorized access. Please log in as a seller."
-
-
-@app.route('/logout')
-def logout():
-    session.clear()  # Clear all session data
-    return redirect(url_for('login'))
-
+    if session.get("user_role") != "seller":
+        return redirect(url_for("login"))
+    return render_template("seller.html")
 
 if __name__ == '__main__':
-    app.run(debug=True)
+    port = int(os.environ.get("PORT", 5000))  # Use Railway-assigned port
+    app.run(host='0.0.0.0', port=port)
