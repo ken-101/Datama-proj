@@ -1,0 +1,13 @@
+body {
+    font-family: Arial, sans-serif;
+    margin: 20px;
+    background-color: #f4f4f4;
+  }
+  h1 {
+    color: #ce2323;
+  }
+  label {
+    display: inline-block;
+    width: 80px;
+  }
+  
