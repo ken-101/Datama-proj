@@ -5,7 +5,6 @@ from werkzeug.security import generate_password_hash, check_password_hash
 import config
 
 app = Flask(__name__)
-app.secret_key = "supersecretkey"  # Change this in production
 
 # Initialize Supabase Client
 supabase: Client = create_client(config.SUPABASE_URL, config.SUPABASE_KEY)
